@@ -80,9 +80,9 @@ int IP_SCROLL_SPEED = 115;            // Default: Adjust this for the IP Address
 int messageScrollSpeed = 85;          // default fallback
 
 // --- Nightscout setting ---
-const unsigned int NIGHTSCOUT_IDLE_THRESHOLD_MIN = 10;  // minutes before data is considered outdated
+const unsigned int NIGHTSCOUT_IDLE_THRESHOLD_MIN = 5;  // minutes before data is considered outdated
 unsigned long lastNightscoutFetchTime = 0;
-const unsigned long NIGHTSCOUT_FETCH_INTERVAL = 150000;  // 2.5 minutes
+const unsigned long NIGHTSCOUT_FETCH_INTERVAL = 100000;  // 2.5 minutes
 int currentGlucose = -1;
 String currentDirection = "?";
 time_t lastGlucoseTime = 0;  // store timestamp from JSON
@@ -4254,137 +4254,223 @@ void loop() {
   }  // End of if (displayMode == 3 && ...)
 
 
-  // // --- NIGHTSCOUT Display Mode ---
+
+  // --- NIGHTSCOUT / ADSB Display Mode ---
 
   if (displayMode == 4) {
     if (forceMessageRestart) return;
     String ntpField = String(ntpServer2);
 
-    // Check if it's time to fetch new data or if we have no data yet
-    if (currentGlucose == -1 || millis() - lastNightscoutFetchTime >= NIGHTSCOUT_FETCH_INTERVAL) {
-      isNetworkBusy = true;
-      WiFiClientSecure client;
-      client.setInsecure();
-      HTTPClient https;
-      https.begin(client, ntpField);
+    // Check if this is an ADSB API endpoint
+    bool isADSB = ntpField.startsWith("https://api.adsb.lol");
+
+    if (isADSB) {
+      // --- ADSB API MODE ---
+      if (currentGlucose == -1 || millis() - lastNightscoutFetchTime >= NIGHTSCOUT_FETCH_INTERVAL) {
+        isNetworkBusy = true;
+        WiFiClientSecure client;
+        client.setInsecure();
+        HTTPClient https;
+        https.begin(client, ntpField);
 #ifdef ESP8266
-      client.setBufferSizes(512, 512);
+        client.setBufferSizes(512, 512);
 #endif
-      https.setTimeout(5000);
+        https.setTimeout(5000);
 
-      Serial.println("[HTTPS] Nightscout fetch initiated...");
-      int httpCode = https.GET();
+        Serial.println("[ADSB] Aircraft fetch initiated...");
+        int httpCode = https.GET();
 
-      if (httpCode == HTTP_CODE_OK) {
-        String payload = https.getString();
-        StaticJsonDocument<1024> doc;
-        DeserializationError error = deserializeJson(doc, payload);
-        if (!error && doc.is<JsonArray>() && doc.size() > 0) {
-          JsonObject firstReading = doc[0].as<JsonObject>();
-          currentGlucose = firstReading["glucose"] | firstReading["sgv"] | -1;
-          currentDirection = firstReading["direction"] | "?";
-          long long dateMs = firstReading["date"] | 0LL;
-          if (dateMs > 0) {
-            lastGlucoseTime = dateMs / 1000;  // ms → seconds (UTC epoch)
+        if (httpCode == HTTP_CODE_OK) {
+          String payload = https.getString();
+          StaticJsonDocument<1024> doc;
+          DeserializationError error = deserializeJson(doc, payload);
+          if (!error && doc.containsKey("ac") && doc["ac"].is<JsonArray>() && doc["ac"].size() > 0) {
+            JsonObject firstAircraft = doc["ac"][0].as<JsonObject>();
+            if (firstAircraft.containsKey("flight")) {
+              String flight = firstAircraft["flight"].as<String>();
+              flight.trim();
+              if (flight.length() > 0) {
+                currentGlucose = 1;  // Use as a flag that data is available
+                currentDirection = flight;
+                Serial.printf("[ADSB] Flight data fetched: %s\n", flight.c_str());
+              } else {
+                currentGlucose = -1;
+                Serial.println("[ADSB] Flight string is empty");
+              }
+            } else {
+              currentGlucose = -1;
+              Serial.println("[ADSB] Flight field not found in first aircraft");
+            }
+          } else {
+            currentGlucose = -1;
+            Serial.println("[ADSB] Failed to parse aircraft array from JSON");
           }
-          Serial.printf("Nightscout data fetched: %d mg/dL %s\n",
-                        currentGlucose, currentDirection.c_str());
         } else {
-          Serial.println("Failed to parse Nightscout JSON");
+          currentGlucose = -1;
+          Serial.printf("[ADSB] GET failed, error: %s\n", https.errorToString(httpCode).c_str());
         }
-      } else {
-        Serial.printf("[HTTPS] GET failed, error: %s\n",
-                      https.errorToString(httpCode).c_str());
-      }
-      https.end();
-      isNetworkBusy = false;
-      lastNightscoutFetchTime = millis();
-    }
-
-    // --- Display the data ---
-    if (currentGlucose != -1) {
-      // Calculate age of reading
-      time_t nowUTC = time(nullptr);  // already UTC epoch
-
-      bool isOutdated = false;
-      int ageMinutes = 0;
-
-      if (lastGlucoseTime > 0) {
-        double diffSec = difftime(nowUTC, lastGlucoseTime);
-        ageMinutes = (int)(diffSec / 60.0);
-        isOutdated = (ageMinutes > NIGHTSCOUT_IDLE_THRESHOLD_MIN);
-        Serial.printf("[NIGHTSCOUT] Data age: %d minutes old (threshold: %d)\n", ageMinutes, NIGHTSCOUT_IDLE_THRESHOLD_MIN);
+        https.end();
+        isNetworkBusy = false;
+        lastNightscoutFetchTime = millis();
       }
 
-      // Pick arrow character
-      char arrow;
-      if (currentDirection == "Flat") arrow = 139;
-      else if (currentDirection == "SingleUp") arrow = 134;
-      else if (currentDirection == "DoubleUp") arrow = 135;
-      else if (currentDirection == "SingleDown") arrow = 136;
-      else if (currentDirection == "DoubleDown") arrow = 137;
-      else if (currentDirection == "FortyFiveUp") arrow = 138;
-      else if (currentDirection == "FortyFiveDown") arrow = 140;
-      else arrow = '?';
+      // --- Display the flight data ---
+      if (currentGlucose != -1 && currentDirection.length() > 0) {
+        String displayText = currentDirection;
+        Serial.printf("[ADSB] Displaying flight: %s\n", displayText.c_str());
 
-      // Build display text
-      String displayText = "";
-      // ADD crossed digits
-      if (isOutdated) {
-
-        String glucoseStr = String(currentGlucose);
-
-        for (int i = 0; i < glucoseStr.length(); i++) {
-          if (isDigit(glucoseStr[i])) {
-            int num = glucoseStr[i] - '0';           // 0–9
-            glucoseStr[i] = 195 + ((num + 9) % 10);  // Maps 0→204, 1→195, ...
-          }
-        }
-
-        String separatedStr = "";
-        for (int i = 0; i < glucoseStr.length(); i++) {
-          separatedStr += glucoseStr[i];
-          if (i < glucoseStr.length() - 1) {
-            separatedStr += char(255);  // insert separator between digits
-          }
-        }
-
-        displayText += char(255);
-        displayText += char(255);
-        displayText += separatedStr;
-        displayText += char(255);
-        displayText += char(255);
-        displayText += " ";  // extra space
-        displayText += arrow;
-        P.setCharSpacing(0);
-      } else {
-        displayText += String(currentGlucose) + String(arrow);
+        P.setTextAlignment(PA_CENTER);
         P.setCharSpacing(1);
+        P.print(displayText.c_str());
+        unsigned long adsbStart = millis();
+        while (millis() - adsbStart < weatherDuration) {
+          if (forceMessageRestart) return;
+          yield();
+        }
+        advanceDisplayMode();
+        return;
+      } else {
+        P.setTextAlignment(PA_CENTER);
+        P.setCharSpacing(0);
+        P.write(15);  // No data icon
+        unsigned long errorStart = millis();
+        while (millis() - errorStart < 2000) {
+          if (forceMessageRestart) return;
+          yield();
+        }
+        advanceDisplayMode();
+        return;
       }
 
-      P.setTextAlignment(PA_CENTER);
-      P.print(displayText.c_str());
-      unsigned long nightscoutStart = millis();
-      while (millis() - nightscoutStart < weatherDuration) {
-        if (forceMessageRestart) return;  // Kicks out immediately if HA spams
-        yield();
-      }
-      advanceDisplayMode();
-      return;
     } else {
-      P.setTextAlignment(PA_CENTER);
-      P.setCharSpacing(0);
-      P.write(15);
-      unsigned long errorStart = millis();
-      while (millis() - errorStart < 2000) {
-        if (forceMessageRestart) return;
-        yield();
+      // --- NIGHTSCOUT API MODE (Original Logic) ---
+      // Check if it's time to fetch new data or if we have no data yet
+      if (currentGlucose == -1 || millis() - lastNightscoutFetchTime >= NIGHTSCOUT_FETCH_INTERVAL) {
+        isNetworkBusy = true;
+        WiFiClientSecure client;
+        client.setInsecure();
+        HTTPClient https;
+        https.begin(client, ntpField);
+#ifdef ESP8266
+        client.setBufferSizes(512, 512);
+#endif
+        https.setTimeout(5000);
+
+        Serial.println("[HTTPS] Nightscout fetch initiated...");
+        int httpCode = https.GET();
+
+        if (httpCode == HTTP_CODE_OK) {
+          String payload = https.getString();
+          StaticJsonDocument<1024> doc;
+          DeserializationError error = deserializeJson(doc, payload);
+          if (!error && doc.is<JsonArray>() && doc.size() > 0) {
+            JsonObject firstReading = doc[0].as<JsonObject>();
+            currentGlucose = firstReading["glucose"] | firstReading["sgv"] | -1;
+            currentDirection = firstReading["direction"] | "?";
+            long long dateMs = firstReading["date"] | 0LL;
+            if (dateMs > 0) {
+              lastGlucoseTime = dateMs / 1000;  // ms → seconds (UTC epoch)
+            }
+            Serial.printf("Nightscout data fetched: %d mg/dL %s\n",
+                          currentGlucose, currentDirection.c_str());
+          } else {
+            Serial.println("Failed to parse Nightscout JSON");
+          }
+        } else {
+          Serial.printf("[HTTPS] GET failed, error: %s\n",
+                        https.errorToString(httpCode).c_str());
+        }
+        https.end();
+        isNetworkBusy = false;
+        lastNightscoutFetchTime = millis();
       }
-      advanceDisplayMode();
-      return;
+
+      // --- Display the data ---
+      if (currentGlucose != -1) {
+        // Calculate age of reading
+        time_t nowUTC = time(nullptr);  // already UTC epoch
+
+        bool isOutdated = false;
+        int ageMinutes = 0;
+
+        if (lastGlucoseTime > 0) {
+          double diffSec = difftime(nowUTC, lastGlucoseTime);
+          ageMinutes = (int)(diffSec / 60.0);
+          isOutdated = (ageMinutes > NIGHTSCOUT_IDLE_THRESHOLD_MIN);
+          Serial.printf("[NIGHTSCOUT] Data age: %d minutes old (threshold: %d)\n", ageMinutes, NIGHTSCOUT_IDLE_THRESHOLD_MIN);
+        }
+
+        // Pick arrow character
+        char arrow;
+        if (currentDirection == "Flat") arrow = 139;
+        else if (currentDirection == "SingleUp") arrow = 134;
+        else if (currentDirection == "DoubleUp") arrow = 135;
+        else if (currentDirection == "SingleDown") arrow = 136;
+        else if (currentDirection == "DoubleDown") arrow = 137;
+        else if (currentDirection == "FortyFiveUp") arrow = 138;
+        else if (currentDirection == "FortyFiveDown") arrow = 140;
+        else arrow = '?';
+
+        // Build display text
+        String displayText = "";
+        // ADD crossed digits
+        if (isOutdated) {
+
+          String glucoseStr = String(currentGlucose);
+
+          for (int i = 0; i < glucoseStr.length(); i++) {
+            if (isDigit(glucoseStr[i])) {
+              int num = glucoseStr[i] - '0';           // 0–9
+              glucoseStr[i] = 195 + ((num + 9) % 10);  // Maps 0→204, 1→195, ...
+            }
+          }
+
+          String separatedStr = "";
+          for (int i = 0; i < glucoseStr.length(); i++) {
+            separatedStr += glucoseStr[i];
+            if (i < glucoseStr.length() - 1) {
+              separatedStr += char(255);  // insert separator between digits
+            }
+          }
+
+          displayText += char(255);
+          displayText += char(255);
+          displayText += separatedStr;
+          displayText += char(255);
+          displayText += char(255);
+          displayText += " ";  // extra space
+          displayText += arrow;
+          P.setCharSpacing(0);
+        } else {
+          displayText += String(currentGlucose) + String(arrow);
+          P.setCharSpacing(1);
+        }
+
+        P.setTextAlignment(PA_CENTER);
+        P.print(displayText.c_str());
+        unsigned long nightscoutStart = millis();
+        while (millis() - nightscoutStart < weatherDuration) {
+          if (forceMessageRestart) return;  // Kicks out immediately if HA spams
+          yield();
+        }
+        advanceDisplayMode();
+        return;
+      } else {
+        P.setTextAlignment(PA_CENTER);
+        P.setCharSpacing(0);
+        P.write(15);
+        unsigned long errorStart = millis();
+        while (millis() - errorStart < 2000) {
+          if (forceMessageRestart) return;
+          yield();
+        }
+        advanceDisplayMode();
+        return;
+      }
     }
   }
-
+   
+  
 
   // DATE Display Mode
   else if (displayMode == 5 && showDate) {
