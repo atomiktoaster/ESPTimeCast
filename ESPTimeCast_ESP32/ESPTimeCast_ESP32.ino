@@ -4338,8 +4338,8 @@ void loop() {
                 StaticJsonDocument<512> adsbdbDoc;
                 DeserializationError adsbdbError = deserializeJson(adsbdbDoc, adsbdbPayload);
 
-                origin = adsbdbDoc["response"]["origin"]["iata_code"].as<String>();
-                origin = adsbdbDoc["response"]["destination"]["iata_code"].as<String>();
+                origin = adsbdbDoc["response"]["flightroute"]["origin"]["iata_code"].as<String>();
+                destination = adsbdbDoc["response"]["flightroute"]["destination"]["iata_code"].as<String>();
                 Serial.printf("[ADSB] Origin %s\n", origin.c_str());                                  
                   
                 if (origin) {
@@ -4377,23 +4377,68 @@ void loop() {
         String displayText = currentDirection;
         Serial.printf("[ADSB] Displaying: %s\n", displayText.c_str());
 
-        P.setTextAlignment(PA_CENTER);
-        P.setCharSpacing(1);
-        P.print(displayText.c_str());
-        unsigned long adsbStart = millis();
-        while (millis() - adsbStart < weatherDuration) {
-          if (forceMessageRestart) return;
-          yield();
+        // --- BRANCH A: SHORT TEXT (7 chars or less) - STATIC ---
+        if (displayText.length() <= 7) {
+          P.setTextAlignment(PA_CENTER);
+          P.setCharSpacing(1);
+          P.print(displayText.c_str());
+          unsigned long adsbStart = millis();
+          while (millis() - adsbStart < weatherDuration) {
+            if (forceMessageRestart) return;
+            yield();
+          }
+          advanceDisplayMode();
+          return;
         }
-        advanceDisplayMode();
-        return;
+        
+        // --- BRANCH B: LONG TEXT (>7 chars) - SCROLLING ---
+        else {
+          // Prepare safe buffer
+          static char adsbBuffer[128];
+          displayText.toCharArray(adsbBuffer, sizeof(adsbBuffer));
+
+          // Add padding similar to weather description
+          bool addPadding = false;
+          bool humidityVisible = showHumidity && weatherAvailable && strlen(openWeatherApiKey) == 32 && strlen(openWeatherCity) > 0 && strlen(openWeatherCountry) > 0;
+
+          if (prevDisplayMode == 0 && (showDayOfWeek || colonBlinkEnabled)) {
+            addPadding = true;
+          } else if (prevDisplayMode == 1 && humidityVisible) {
+            addPadding = true;
+          }
+          
+          if (addPadding) {
+            displayText = "    " + displayText;  // 4-space padding before scrolling
+            displayText.toCharArray(adsbBuffer, sizeof(adsbBuffer));
+          }
+
+          // Scroll the text
+          textEffect_t actualScrollDirection = getEffectiveScrollDirection(PA_SCROLL_LEFT, flipDisplay);
+          P.displayScroll(adsbBuffer, PA_CENTER, actualScrollDirection, GENERAL_SCROLL_SPEED);
+
+          while (!P.displayAnimate()) {
+            if (forceMessageRestart) return;
+            yield();
+          }
+
+          // Small pause after scroll (similar to weather description)
+          unsigned long scrollEndTime = millis();
+          while (millis() - scrollEndTime < descriptionScrollPause) {
+            if (forceMessageRestart) return;
+            yield();
+          }
+
+          // Advance to next display mode
+          advanceDisplayMode();
+          return;
+        }
       } else {
         // No valid aircraft found - display nothing and advance
         Serial.println("[ADSB] Displaying nothing, advancing display mode");
         advanceDisplayMode();
         return;
       }
-    
+      }
 
     } else {
       // --- NIGHTSCOUT API MODE (Original Logic) ---
