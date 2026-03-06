@@ -4264,18 +4264,23 @@ void loop() {
     // Check if this is an ADSB API endpoint
     bool isADSB = ntpField.startsWith("https://api.adsb.lol");
 
+    WiFiClientSecure client;
+    WiFiClientSecure adsbdbClient;
+    client.setInsecure();
+    adsbdbClient.setInsecure();
+    HTTPClient https;
+    HTTPClient adsbdbHttp;
+
+
     if (isADSB) {
+
       // --- ADSB API MODE ---
       if (currentGlucose == -1 || millis() - lastNightscoutFetchTime >= NIGHTSCOUT_FETCH_INTERVAL) {
         isNetworkBusy = true;
-        WiFiClientSecure client;
-        client.setInsecure();
-        HTTPClient https;
-        
         https.begin(client, ntpField);
-    #ifdef ESP8266
-        client.setBufferSizes(512, 512);
-    #endif
+        #ifdef ESP8266
+          client.setBufferSizes(512, 512);
+        #endif
         https.setTimeout(5000);
 
         Serial.println("[ADSB] Aircraft fetch initiated...");
@@ -4317,8 +4322,8 @@ void loop() {
             
             if (foundCommercial) {
               // Fetch flight details from adsbdb API
-              WiFiClientSecure adsbdbClient;
-              adsbdbClient.setInsecure();
+
+
               
               String adsbdbUrl = "https://api.adsbdb.com/v0/callsign/" + commercialFlight;
               
@@ -4332,28 +4337,17 @@ void loop() {
                 String adsbdbPayload = adsbdbHttp.getString();
                 StaticJsonDocument<512> adsbdbDoc;
                 DeserializationError adsbdbError = deserializeJson(adsbdbDoc, adsbdbPayload);
-                
-                if (!adsbdbError && adsbdbDoc.containsKey("response") && adsbdbDoc["response"].containsKey("origin")) {
-                  JsonObject flightData = adsbdbDoc["response"];
+
+                origin = adsbdbDoc["response"]["origin"]["iata_code"].as<String>();
+                origin = adsbdbDoc["response"]["destination"]["iata_code"].as<String>();
+                Serial.printf("[ADSB] Origin %s\n", origin.c_str());                                  
                   
-                  
-                  if (flightData.containsKey("origin") && flightData.containsKey("destination")) {
-                    // Try to get origin/destination from route if available
-                      origin = flightData["origin"]["iata_code"].as<String>();
-                      destination = flightData["destination"]["iata_code"].as<String>();
-                    }
-                  }
-                  
-                  if (origin.length() > 0 && destination.length() > 0) {
-                    currentDirection = commercialFlight + ":" + origin + "-" + destination;
-                    Serial.printf("[ADSB] Route: %s\n", currentDirection.c_str());
-                  } else {
-                    currentDirection = commercialFlight;
-                    Serial.println("[ADSB] Route not available, using flight callsign");
-                  }
+                if (origin) {
+                  currentDirection = commercialFlight + ":" + origin + "-" + destination;
+                  Serial.printf("[ADSB] Route: %s\n", currentDirection.c_str());
                 } else {
                   currentDirection = commercialFlight;
-                  Serial.println("[ADSB] Failed to parse adsbdb response");
+                  Serial.println("[ADSB] Route not available, using flight callsign");
                 }
               } else {
                 currentDirection = commercialFlight;
@@ -4371,12 +4365,12 @@ void loop() {
           }
         } else {
           currentGlucose = -1;
-          Serial.printf("[ADSB] GET failed, error: %s\n", https.errorToString(httpCode).c_str());
+          Serial.printf("[ADSB] GET failed." );
         }
         https.end();
         isNetworkBusy = false;
         lastNightscoutFetchTime = millis();
-      }
+      
 
       // --- Display the flight data ---
       if (currentGlucose != -1 && currentDirection.length() > 0) {
