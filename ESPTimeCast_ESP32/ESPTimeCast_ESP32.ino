@@ -4272,9 +4272,9 @@ void loop() {
         client.setInsecure();
         HTTPClient https;
         https.begin(client, ntpField);
-#ifdef ESP8266
-        client.setBufferSizes(512, 512);
-#endif
+        #ifdef ESP8266
+          client.setBufferSizes(512, 512);
+        #endif
         https.setTimeout(5000);
 
         Serial.println("[ADSB] Aircraft fetch initiated...");
@@ -4285,21 +4285,34 @@ void loop() {
           StaticJsonDocument<1024> doc;
           DeserializationError error = deserializeJson(doc, payload);
           if (!error && doc.containsKey("ac") && doc["ac"].is<JsonArray>() && doc["ac"].size() > 0) {
-            JsonObject firstAircraft = doc["ac"][0].as<JsonObject>();
-            if (firstAircraft.containsKey("flight")) {
-              String flight = firstAircraft["flight"].as<String>();
-              flight.trim();
-              if (flight.length() > 0) {
-                currentGlucose = 1;  // Use as a flag that data is available
-                currentDirection = flight;
-                Serial.printf("[ADSB] Flight data fetched: %s\n", flight.c_str());
-              } else {
-                currentGlucose = -1;
-                Serial.println("[ADSB] Flight string is empty");
+            
+            // Loop through aircraft array to find first commercial flight
+            bool foundCommercial = false;
+            for (size_t i = 0; i < doc["ac"].size(); i++) {
+              JsonObject aircraft = doc["ac"][i].as<JsonObject>();
+              
+              // Check if flight field exists and is different from r field (tail number)
+              if (aircraft.containsKey("flight") && aircraft.containsKey("r")) {
+                String flight = aircraft["flight"].as<String>();
+                String tailNumber = aircraft["r"].as<String>();
+                
+                flight.trim();
+                tailNumber.trim();
+                
+                // Commercial if flight is not empty and different from tail number
+                if (flight.length() > 0 && !flight.equals(tailNumber)) {
+                  currentGlucose = 1;  // Use as a flag that data is available
+                  currentDirection = flight;
+                  Serial.printf("[ADSB] Commercial flight found at index %d: %s\n", i, flight.c_str());
+                  foundCommercial = true;
+                  break;
+                }
               }
-            } else {
+            }
+            
+            if (!foundCommercial) {
               currentGlucose = -1;
-              Serial.println("[ADSB] Flight field not found in first aircraft");
+              Serial.println("[ADSB] No valid aircraft (all were general aviation)");
             }
           } else {
             currentGlucose = -1;
@@ -4330,17 +4343,12 @@ void loop() {
         advanceDisplayMode();
         return;
       } else {
-        P.setTextAlignment(PA_CENTER);
-        P.setCharSpacing(0);
-        P.write(15);  // No data icon
-        unsigned long errorStart = millis();
-        while (millis() - errorStart < 2000) {
-          if (forceMessageRestart) return;
-          yield();
-        }
+        // No valid aircraft found - display nothing and advance
+        Serial.println("[ADSB] Displaying nothing, advancing display mode");
         advanceDisplayMode();
         return;
       }
+    
 
     } else {
       // --- NIGHTSCOUT API MODE (Original Logic) ---
@@ -4351,9 +4359,9 @@ void loop() {
         client.setInsecure();
         HTTPClient https;
         https.begin(client, ntpField);
-#ifdef ESP8266
-        client.setBufferSizes(512, 512);
-#endif
+        #ifdef ESP8266
+          client.setBufferSizes(512, 512);
+        #endif
         https.setTimeout(5000);
 
         Serial.println("[HTTPS] Nightscout fetch initiated...");
