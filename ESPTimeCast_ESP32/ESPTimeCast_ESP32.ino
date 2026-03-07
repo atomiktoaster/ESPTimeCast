@@ -4273,6 +4273,7 @@ void loop() {
 
 
     if (isADSB) {
+      const String localAirport = "CVG";
 
       // --- ADSB API MODE ---
       if (currentGlucose == -1 || millis() - lastNightscoutFetchTime >= NIGHTSCOUT_FETCH_INTERVAL) {
@@ -4343,8 +4344,14 @@ void loop() {
                 Serial.printf("[ADSB] Origin %s\n", origin.c_str());                                  
                   
                 if (origin) {
-                  currentDirection = commercialFlight + ":" + origin + "-" + destination;
+                  currentDirection = commercialFlight + ":" + origin + "»" + destination;
                   Serial.printf("[ADSB] Route: %s\n", currentDirection.c_str());
+                  if (origin == localAirport) {
+                    currentDirection = commercialFlight + "©" +  destination;
+                  }
+                  if (destination == localAirport){
+                    currentDirection = commercialFlight + "®" + origin;
+                  }
                 } else {
                   currentDirection = commercialFlight;
                   Serial.println("[ADSB] Route not available, using flight callsign");
@@ -4357,11 +4364,15 @@ void loop() {
             } else {
               // No commercial aircraft found
               currentGlucose = -1;
-              Serial.println("[ADSB] no valid aircraft");
+              Serial.println("[ADSB] no commercial aircraft");
             }
           } else {
             currentGlucose = -1;
-            Serial.println("[ADSB] Failed to parse aircraft array from JSON");
+            if (doc["msg"] == "No error"){
+              Serial.println("[ADSB] No aircraft nearby");
+            }else{
+              Serial.println("[ADSB] Failed to parse aircraft array from JSON");
+            }
           }
         } else {
           currentGlucose = -1;
