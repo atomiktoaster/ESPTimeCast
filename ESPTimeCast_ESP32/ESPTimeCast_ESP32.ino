@@ -4302,6 +4302,7 @@ void loop() {
             String commercialFlight = "";
             String origin = "";
             String destination = "";
+            long minAlt = 90000;
             
             for (size_t i = 0; i < doc["ac"].size(); i++) {
               JsonObject aircraft = doc["ac"][i].as<JsonObject>();
@@ -4315,12 +4316,13 @@ void loop() {
                 tailNumber.trim();
                 
                 // Commercial if flight is not empty and different from tail number
-                if (flight.length() > 0 && !flight.equals(tailNumber)) {
+                if (flight.length() > 0 && !flight.equals(tailNumber) && minAlt > aircraft["alt_baro"].as<long>()) {
                   commercialFlight = flight;
+                  minAlt = aircraft["alt_baro"].as<long>();
                   currentGlucose = 1;  // Flag that data is available
                   Serial.printf("[ADSB] Commercial flight found at index %d: %s\n", i, flight.c_str());
                   foundCommercial = true;
-                  break;
+                  //break;
                 }
               }
             }
