@@ -82,7 +82,7 @@ int messageScrollSpeed = 85;          // default fallback
 // --- Nightscout setting ---
 const unsigned int NIGHTSCOUT_IDLE_THRESHOLD_MIN = 5;  // minutes before data is considered outdated
 unsigned long lastNightscoutFetchTime = 0;
-const unsigned long NIGHTSCOUT_FETCH_INTERVAL = 100000;  // 2.5 minutes
+const unsigned long NIGHTSCOUT_FETCH_INTERVAL = 20000;  // 20 seconds
 int currentGlucose = -1;
 String currentDirection = "?";
 time_t lastGlucoseTime = 0;  // store timestamp from JSON
@@ -4265,11 +4265,11 @@ void loop() {
     bool isADSB = ntpField.startsWith("https://api.adsb.lol");
 
     WiFiClientSecure client;
-    WiFiClientSecure adsbdbClient;
+    //WiFiClientSecure adsbdbClient;
     client.setInsecure();
-    adsbdbClient.setInsecure();
+    //adsbdbClient.setInsecure();
     HTTPClient https;
-    HTTPClient adsbdbHttp;
+    //HTTPClient adsbdbHttp;
 
 
     if (isADSB) {
@@ -4287,10 +4287,14 @@ void loop() {
         Serial.println("[ADSB] Aircraft fetch initiated...");
         int httpCode = https.GET();
 
+
         if (httpCode == HTTP_CODE_OK) {
           String payload = https.getString();
+          Serial.printf("[ADSB] AC payload: %s\n", payload.c_str());
           StaticJsonDocument<1024> doc;
           DeserializationError error = deserializeJson(doc, payload);
+          https.end();
+
           if (!error && doc.containsKey("ac") && doc["ac"].is<JsonArray>() && doc["ac"].size() > 0) {
             
             // Loop through aircraft array to find first commercial flight
@@ -4329,15 +4333,20 @@ void loop() {
               String adsbdbUrl = "https://api.adsbdb.com/v0/callsign/" + commercialFlight;
               
               Serial.printf("[ADSB] Fetching details from: %s\n", adsbdbUrl.c_str());
-              adsbdbHttp.begin(adsbdbClient, adsbdbUrl);
-              adsbdbHttp.setTimeout(5000);
+              https.begin(client, adsbdbUrl);
+              https.setTimeout(5000);
               
-              int adsbdbCode = adsbdbHttp.GET();
+              int adsbdbCode = https.GET();
+
 
               if (adsbdbCode == HTTP_CODE_OK) {
-                String adsbdbPayload = adsbdbHttp.getString();
+
+                String adsbdbPayload = https.getString();
+                Serial.printf("[ADSB] Route payload: %s\n", adsbdbPayload.c_str());
+                
                 StaticJsonDocument<512> adsbdbDoc;
                 DeserializationError adsbdbError = deserializeJson(adsbdbDoc, adsbdbPayload);
+                https.end();
 
                 origin = adsbdbDoc["response"]["flightroute"]["origin"]["iata_code"].as<String>();
                 destination = adsbdbDoc["response"]["flightroute"]["destination"]["iata_code"].as<String>();
@@ -4360,7 +4369,7 @@ void loop() {
                 currentDirection = commercialFlight;
                 Serial.printf("[ADSB] adsbdb request failed");
               }
-              adsbdbHttp.end();
+              https.end();
             } else {
               // No commercial aircraft found
               currentGlucose = -1;
