@@ -2928,7 +2928,7 @@ void setup() {
   Serial.println();
   Serial.println(F("[SETUP] Starting setup..."));
 #if defined(ARDUINO_USB_MODE) || defined(USB_SERIAL)
-  Serial.setTxTimeoutMs(50);
+  //Serial.setTxTimeoutMs(50);
   Serial.println(F("[SERIAL] USB CDC detected — TX timeout enabled"));
   delay(500);
 #endif
@@ -4282,11 +4282,11 @@ void loop() {
         #ifdef ESP8266
           client.setBufferSizes(512, 512);
         #endif
-        https.setTimeout(5000);
+        https.setTimeout(7000);
 
         Serial.println("[ADSB] Aircraft fetch initiated...");
         int httpCode = https.GET();
-
+        Serial.printf("[HTTP] Response code: %d\n", httpCode);
 
         if (httpCode == HTTP_CODE_OK) {
           String payload = https.getString();
@@ -4370,6 +4370,7 @@ void loop() {
               } else {
                 currentDirection = commercialFlight;
                 Serial.printf("[ADSB] adsbdb request failed");
+                https.end();
               }
               https.end();
             } else {
@@ -4388,6 +4389,7 @@ void loop() {
         } else {
           currentGlucose = -1;
           Serial.printf("[ADSB] GET failed." );
+          https.end();
         }
         https.end();
         isNetworkBusy = false;
