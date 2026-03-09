@@ -1,13 +1,6 @@
 ![ESPTimeCast](assets/logo.svg)
 
-![GitHub stars](https://img.shields.io/github/stars/mfactory-osaka/ESPTimeCast?style=social)
-![GitHub forks](https://img.shields.io/github/forks/mfactory-osaka/ESPTimeCast?style=social)
-![Last Commit](https://img.shields.io/github/last-commit/mfactory-osaka/ESPTimeCast)  
-[![Hackaday](https://img.shields.io/badge/Featured%20on-Hackaday-black?logo=hackaday&logoColor=white)](https://hackaday.com/2025/10/02/building-a-desk-display-for-time-and-weather-data)
-[![XDA Developers](https://img.shields.io/badge/Featured%20on-XDA%20Developers-blueviolet?logo=android&logoColor=white)](https://www.xda-developers.com/super-sleek-esp32-weather-station)
-[![Hackster](https://img.shields.io/badge/Featured%20on-Hackster-orange?logo=hackster&logoColor=white)](https://www.hackster.io/news/the-perfect-minimalist-led-clock-49a4e4440518)
-
-🎉 **1,000+ GitHub stars - thank you to the community!**  
+Forked from ESPTimeCast by mfactory-osaka, this build allows ASDB data to be displayed instead of the nightscout mode, with the proper URL setup. This is an unofficial modification for hobby purposes, not supported by me or mfactory-osaka.
 
 **ESPTimeCast™** is a sleek, WiFi-connected LED matrix clock and weather display built on **ESP8266/ESP32** and **MAX7219**.
 It combines real-time NTP time sync, live OpenWeatherMap updates, and a modern web-based configuration interface — all in one compact design.
@@ -741,6 +734,7 @@ If you'd like to go a step further, you can also support development through the
 
 
       
+
 
 
 
