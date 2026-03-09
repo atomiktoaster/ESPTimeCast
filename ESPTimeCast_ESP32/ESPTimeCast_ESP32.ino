@@ -4273,12 +4273,15 @@ void loop() {
 
 
     if (isADSB) {
-      const String localAirport = "CVG";
+      //proper URL format for ADSB Mode is "https://api.adsb.lol/v2/point/39.21/-84.60/8/CVG" The 3 letter IATA code must be appended.
+      int lastIndex = ntpField.lastIndexOf('/');
+      String adsbURL = ntpField.substring(0, lastIndex);
+      String localAirport = ntpField.substring(lastIndex + 1);
 
       // --- ADSB API MODE ---
       if (currentGlucose == -1 || millis() - lastNightscoutFetchTime >= NIGHTSCOUT_FETCH_INTERVAL) {
         isNetworkBusy = true;
-        https.begin(client, ntpField);
+        https.begin(client, adsbURL);
         #ifdef ESP8266
           client.setBufferSizes(512, 512);
         #endif
